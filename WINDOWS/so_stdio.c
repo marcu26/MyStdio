@@ -14,7 +14,7 @@ struct _so_file
     int LastOperation; //-1 = nu a fost o alta operatie, 0 = a fost read, 1 = a fost write, 2 = a fost append
     int BytesRead;
     int IsOpenForAppend;
-    int pid;
+    PROCESS_INFORMATION process;
 };
 
 SO_FILE* AllocFilePtr()
@@ -382,11 +382,112 @@ SO_FILE *so_popen(const char *command, const char *type)
     SO_FILE *FILE = AllocFilePtr();
     int flag=0;
 
+    char commandLine[BUFFER_SIZE];
+    //strcpy(commandLine,"C:\\windows\\system32\\cmd.exe /c ");
+    strcat(commandLine,command);
 
-    return FILE;
+    if(FILE == NULL)
+    return NULL;
+
+    if(strcmp(type,"r")==0)
+    {
+        flag = GENERIC_READ;
+    }
+    else if(strcmp(type,"w")==0)
+    {
+        flag = GENERIC_WRITE;
+    }
+    else
+    {
+        free(FILE);
+        return NULL;
+    }
+
+	SECURITY_ATTRIBUTES si_pipe;
+	STARTUPINFO si;
+	PROCESS_INFORMATION pi;
+
+    ZeroMemory(&si, sizeof(si));
+    si.cb = sizeof(si);
+
+    si.dwFlags |= STARTF_USESTDHANDLES;
+    si.hStdInput=GetStdHandle(STD_INPUT_HANDLE);
+    si.hStdOutput=GetStdHandle(STD_OUTPUT_HANDLE);
+    si.hStdError=GetStdHandle(STD_ERROR_HANDLE);
+
+    ZeroMemory(&pi, sizeof(pi));
+
+    ZeroMemory(&si_pipe, sizeof(si_pipe));
+    si_pipe.nLength = sizeof(si_pipe);
+
+    si_pipe.bInheritHandle = TRUE;
+
+    HANDLE hReadPipe, hWritePipe;
+    BOOL a = CreatePipe(&hReadPipe, &hWritePipe, &si_pipe, 0);
+
+    if(a==FALSE)
+    {
+        free(FILE);
+        return NULL;
+    }
+
+    if(flag==GENERIC_READ)
+    {
+        FILE->Handle = hReadPipe;
+        si.hStdOutput = hWritePipe;
+        SetHandleInformation(hReadPipe, HANDLE_FLAG_INHERIT,0);   
+    }
+    else
+    {
+        FILE->Handle = hWritePipe;
+        si.hStdOutput = hReadPipe;
+        SetHandleInformation(hWritePipe, HANDLE_FLAG_INHERIT,0);   
+    }
+
+
+    if (flag==GENERIC_READ)
+		CloseHandle(hWritePipe);
+	else
+		CloseHandle(hReadPipe);
+
+	if (a == 0) 
+    {
+		free(FILE);
+		return NULL;
+	}
+
+	FILE->process = pi;
+
+	return FILE;
 }
 
 int so_pclose(SO_FILE *stream)
 {
+     if(stream->LastOperation == 1 || stream->LastOperation==2)
+    {
+        int a = so_fflush(stream);
+        if(a==-1)
+        {
+            stream->IsError=1;
+        }
+    }
+
+    int status;
+    CloseHandle(stream->Handle);
+    int a = WaitForSingleObject(stream->process.hProcess,INFINITE);
+
+    if (a == WAIT_FAILED) 
+    {
+		return -1;
+	}
+
+    CloseHandle(stream->process.hProcess);
+	CloseHandle(stream->process.hThread);
+
+    free(stream);
+
+    if(a<0)
     return -1;
+
+    return 0;
 }
