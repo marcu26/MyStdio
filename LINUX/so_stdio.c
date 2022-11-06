@@ -28,8 +28,6 @@ SO_FILE* AllocFilePtr()
 
     if (FILE == NULL)
         {
-            char buff[30]="File pointer nu a putut fi\0";
-            write(STDOUT_FILENO,buff,strlen(buff));
             return NULL;
         }
 
@@ -37,8 +35,6 @@ SO_FILE* AllocFilePtr()
 
     if(FILE->Buffer == NULL)
     {
-            char buff[30]="Buffer nu a putu fi alocat\0";
-            write(STDOUT_FILENO,buff,strlen(buff));
             return NULL;
     }
 
@@ -60,8 +56,7 @@ FUNC_DECL_PREFIX SO_FILE *so_fopen(const char *pathname, const char *mode)
         FILE->FileDescriptor=open(pathname,O_RDONLY);
         if(FILE->FileDescriptor==-1)
         {
-            char buff[30]="Fisier inexistent\n\0";
-            write(STDOUT_FILENO,buff,strlen(buff));
+            free(FILE);
             return NULL;
         }
     }
@@ -71,8 +66,7 @@ FUNC_DECL_PREFIX SO_FILE *so_fopen(const char *pathname, const char *mode)
         FILE->FileDescriptor=open(pathname,O_RDWR);
         if(FILE->FileDescriptor==-1)
         {
-            char buff[30]="Fisier inexistent\n\0";
-            write(STDOUT_FILENO,buff,strlen(buff));
+            free(FILE);
             return NULL;
         }
     }
@@ -82,8 +76,7 @@ FUNC_DECL_PREFIX SO_FILE *so_fopen(const char *pathname, const char *mode)
         FILE->FileDescriptor=open(pathname,O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if(FILE->FileDescriptor==-1)
         {
-            char buff[30]="Fisier inexistent\n\0";
-            write(STDOUT_FILENO,buff,strlen(buff));
+            free(FILE);
             return NULL;
         }
     }
@@ -92,8 +85,7 @@ FUNC_DECL_PREFIX SO_FILE *so_fopen(const char *pathname, const char *mode)
         FILE->FileDescriptor=open(pathname,O_RDWR | O_CREAT | O_TRUNC, 0644);
         if(FILE->FileDescriptor==-1)
         {
-            char buff[30]="Fisier inexistent\n\0";
-            write(STDOUT_FILENO,buff,strlen(buff));
+            free(FILE);
             return NULL;
         }
     }
@@ -103,11 +95,10 @@ FUNC_DECL_PREFIX SO_FILE *so_fopen(const char *pathname, const char *mode)
         FILE->FileDescriptor=open(pathname,O_APPEND | O_CREAT | O_WRONLY, 0644);
         if(FILE->FileDescriptor==-1)
         {
-            char buff[30]="Fisier inexistent\n\0";
-            write(STDOUT_FILENO,buff,strlen(buff));
-            FILE->IsOpenForAppend=1;
+            free(FILE);
             return NULL;
         }
+         FILE->IsOpenForAppend=1;
     }
 
     else if(strcmp(mode,"a+")==0)
@@ -115,11 +106,10 @@ FUNC_DECL_PREFIX SO_FILE *so_fopen(const char *pathname, const char *mode)
         FILE->FileDescriptor=open(pathname,O_APPEND | O_CREAT | O_RDONLY | O_WRONLY, 0644);
         if(FILE->FileDescriptor==-1)
         {
-            char buff[30]="Fisier inexistent\n\0";
-            write(STDOUT_FILENO,buff,strlen(buff));
-            FILE->IsOpenForAppend=1;
+            free(FILE);
             return NULL;
         }
+        FILE->IsOpenForAppend=1;
     }
 
     else
@@ -145,7 +135,10 @@ FUNC_DECL_PREFIX int so_fclose(SO_FILE *stream)
         }
     }
   
-    close(stream->FileDescriptor);
+    int a = close(stream->FileDescriptor);
+    if(a==-1)
+    return -1;
+
     free(stream->Buffer);
     free(stream);
    
@@ -217,8 +210,13 @@ FUNC_DECL_PREFIX int so_fgetc(SO_FILE * stream)
 
         if(stream->BytesRead==0)
         {
-            //stream->IsError=1;
             return SO_EOF;
+        }
+
+        if(stream->BytesRead==-1)
+        {
+            stream->IsError=1;
+            return -1;
         }
 
         stream->LastOperation=0;
@@ -291,8 +289,6 @@ FUNC_DECL_PREFIX size_t so_fwrite(const void *ptr, size_t size, size_t nmemb, SO
 
 }
 
-
-
 FUNC_DECL_PREFIX long so_ftell(SO_FILE *stream)
 {
     long position = lseek(stream->FileDescriptor,0,SEEK_CUR);
@@ -319,7 +315,6 @@ FUNC_DECL_PREFIX long so_ftell(SO_FILE *stream)
          return position;
     }   
 }
-
 
 FUNC_DECL_PREFIX int so_fseek(SO_FILE *stream, long offset, int whence)
 {
@@ -421,7 +416,6 @@ FUNC_DECL_PREFIX SO_FILE *so_popen(const char *command, const char *type)
 
     return FILE;
 }
-
 
 FUNC_DECL_PREFIX int so_pclose(SO_FILE *stream)
 {
