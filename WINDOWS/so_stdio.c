@@ -14,6 +14,7 @@ struct _so_file
     int LastOperation; //-1 = nu a fost o alta operatie, 0 = a fost read, 1 = a fost write, 2 = a fost append
     int BytesRead;
     int IsOpenForAppend;
+    int Flags; // 1=r, 2=r+, 3=w, 4=w+, 5=a, 6=a+;
     PROCESS_INFORMATION process;
 };
 
@@ -37,6 +38,7 @@ SO_FILE* AllocFilePtr()
     FILE->IsError=0;
     FILE->LastOperation=-1;
     FILE->IsOpenForAppend=0;
+    FILE->Flags=0;
 
     return FILE;
 }
@@ -65,6 +67,7 @@ SO_FILE *so_fopen(const char *pathname, const char *mode)
          free(FILE);
         return NULL;
        }
+       FILE->Flags=1;
 
     }
 
@@ -86,6 +89,7 @@ SO_FILE *so_fopen(const char *pathname, const char *mode)
          free(FILE);
         return NULL;
        }
+        FILE->Flags=2;
     }
 
     else  if(strcmp(mode,"w")==0)
@@ -106,6 +110,7 @@ SO_FILE *so_fopen(const char *pathname, const char *mode)
          free(FILE);
         return NULL;
        }
+       FILE->Flags=3;
     }
     else if(strcmp(mode,"w+")==0)
     {
@@ -125,6 +130,7 @@ SO_FILE *so_fopen(const char *pathname, const char *mode)
          free(FILE);
         return NULL;
        }
+       FILE->Flags=4;
     }
 
     else if(strcmp(mode,"a")==0)
@@ -147,6 +153,7 @@ SO_FILE *so_fopen(const char *pathname, const char *mode)
          free(FILE);
         return NULL;
        }
+       FILE->Flags=5;
     }
 
     else if(strcmp(mode,"a+")==0)
@@ -169,6 +176,7 @@ SO_FILE *so_fopen(const char *pathname, const char *mode)
         free(FILE);
         return NULL;
        }
+       FILE->Flags=6;
     }
 
     else
@@ -235,6 +243,11 @@ int so_fflush(SO_FILE *stream)
 
 int so_fgetc(SO_FILE *stream)
 {
+    if(stream->Flags==2 || stream->Flags==4)
+    {
+        return -1;
+    }
+
     if(stream->LastOperation==1 || stream->LastOperation==-1 || stream->BufferCursor==BUFFER_SIZE-1 || stream->LastOperation==2)
     {
         int bytesRead;
@@ -273,6 +286,12 @@ int so_ferror(SO_FILE *stream)
 
 int so_fputc(int c, SO_FILE *stream)
 {
+     if(stream->Flags==1)
+    {
+        return -1;
+    }
+
+
     if(stream->BufferCursor == BUFFER_SIZE)
     {
         int a;
@@ -308,6 +327,9 @@ size_t so_fread(void *ptr, size_t size, size_t nmemb, SO_FILE *stream)
     {
         int a = so_fgetc(stream);
 
+        if(a==-1)
+        return -1;
+
         if(i==stream->BytesRead)
         {
             break;
@@ -330,6 +352,10 @@ size_t so_fwrite(const void *ptr, size_t size, size_t nmemb, SO_FILE *stream)
     for(size_t i=0; i<nmemb*size;i++)
     {
         int a = so_fputc(p[i],stream);
+
+        if(a==-1)
+        return -1;
+
         count++;    
     }
 
@@ -368,9 +394,8 @@ int so_fseek(SO_FILE *stream, long offset, int whence)
     if(stream->LastOperation == 1 || stream->LastOperation==2)
     {
         int a;
-    
+
         a = so_fflush(stream);
-    
 
         if(a==-1)
         {
