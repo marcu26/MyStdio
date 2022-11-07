@@ -244,7 +244,14 @@ FUNC_DECL_PREFIX int so_fputc(int c, SO_FILE *stream)
         }
     }
 
+    if(stream->IsOpenForAppend==1)
+    {
+        stream->LastOperation=2;
+    }
+    else
     stream->LastOperation=1;
+
+    
     stream->Buffer[stream->BufferCursor]=c;
     stream->BufferCursor++;
 }
@@ -318,9 +325,13 @@ FUNC_DECL_PREFIX long so_ftell(SO_FILE *stream)
 
 FUNC_DECL_PREFIX int so_fseek(SO_FILE *stream, long offset, int whence)
 {
-    if(stream->LastOperation == 1 || stream->LastOperation==2)
+    if(stream->LastOperation == 1 || stream->LastOperation == 2)
     {
-        int a = so_fflush(stream);
+        int a;
+        if(stream->IsOpenForAppend!=1)
+        {
+        a = so_fflush(stream);
+        }
         if(a==-1)
         {
             return -1;

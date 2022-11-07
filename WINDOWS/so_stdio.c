@@ -36,6 +36,7 @@ SO_FILE* AllocFilePtr()
     FILE->BufferCursor=0;
     FILE->IsError=0;
     FILE->LastOperation=-1;
+    FILE->IsOpenForAppend=0;
 
     return FILE;
 }
@@ -134,7 +135,7 @@ SO_FILE *so_fopen(const char *pathname, const char *mode)
         GENERIC_WRITE,
         FILE_SHARE_READ | FILE_SHARE_WRITE,
         NULL,
-        CREATE_ALWAYS,
+        OPEN_ALWAYS,
         FILE_ATTRIBUTE_NORMAL,
         NULL
        );
@@ -156,7 +157,7 @@ SO_FILE *so_fopen(const char *pathname, const char *mode)
         GENERIC_READ | GENERIC_WRITE,
         FILE_SHARE_READ | FILE_SHARE_WRITE,
         NULL,
-        CREATE_ALWAYS,
+        OPEN_ALWAYS,
         FILE_ATTRIBUTE_NORMAL,
         NULL
        );
@@ -165,7 +166,7 @@ SO_FILE *so_fopen(const char *pathname, const char *mode)
 
        if(FILE->Handle == INVALID_HANDLE_VALUE)
        {
-         free(FILE);
+        free(FILE);
         return NULL;
        }
     }
@@ -214,11 +215,10 @@ int so_fflush(SO_FILE *stream)
 {
     if(stream->LastOperation!=0 && stream->LastOperation!=-1)
     {
-       //if(stream->IsOpenForAppend==1)
-        //{
-          //  so_fseek(stream,0,SEEK_END);
-        //}
-
+       if(stream->IsOpenForAppend==1)
+        {
+            so_fseek(stream,0,SEEK_END);
+        }
         int written;
 
     int a = WriteFile(stream->Handle,stream->Buffer,stream->BufferCursor,&written,NULL);
@@ -229,6 +229,7 @@ int so_fflush(SO_FILE *stream)
         return -1;
     }
     stream->BufferCursor=0;
+    
     }
 }
 
@@ -274,7 +275,9 @@ int so_fputc(int c, SO_FILE *stream)
 {
     if(stream->BufferCursor == BUFFER_SIZE)
     {
-        int a = so_fflush(stream);
+        int a;
+    
+        a = so_fflush(stream);
 
         if(a==-1)
         {
@@ -283,7 +286,13 @@ int so_fputc(int c, SO_FILE *stream)
         }
     }
 
+     if(stream->IsOpenForAppend==1)
+    {
+        stream->LastOperation=2;
+    }
+    else
     stream->LastOperation=1;
+    
     stream->Buffer[stream->BufferCursor]=c;
     stream->BufferCursor++;
 }
@@ -329,7 +338,7 @@ size_t so_fwrite(const void *ptr, size_t size, size_t nmemb, SO_FILE *stream)
 
 long so_ftell(SO_FILE *stream)
 {
-    long position = SetFilePointer(stream->Handle,0,0,FILE_CURRENT);
+    long position = SetFilePointer(stream->Handle,0,NULL,FILE_CURRENT);
 
     if(position == INVALID_SET_FILE_POINTER)
     {
@@ -358,7 +367,12 @@ int so_fseek(SO_FILE *stream, long offset, int whence)
 {
     if(stream->LastOperation == 1 || stream->LastOperation==2)
     {
-        int a = so_fflush(stream);
+        int a;
+        if(stream->IsOpenForAppend!=1)
+        {
+        a = so_fflush(stream);
+        }
+
         if(a==-1)
         {
             return -1;
@@ -369,7 +383,7 @@ int so_fseek(SO_FILE *stream, long offset, int whence)
         stream->BufferCursor=0;
     }
 
-    int a=SetFilePointer(stream->Handle,offset,0,whence);
+    int a=SetFilePointer(stream->Handle,offset,NULL,whence);
 
     if(a==INVALID_SET_FILE_POINTER)
     return -1;
