@@ -4,15 +4,17 @@
 
 int main(int argc, char*argv[], char *env[])
 {
-    SO_FILE *fptr = so_popen("mspaint","r");
+    SO_FILE *fptr = so_fopen("ceva.txt","a");
 
-    char a[256];
+    char b[256]="aaa acume toamna";
 
-    fread(a,sizeof(char),256,fptr);
+    so_fseek(fptr,0,SEEK_END);
 
+    so_fwrite(b,sizeof(char),strlen(b),fptr);
 
-    printf("%s",a);
+    so_fseek(fptr,0,SEEK_END);
 
+    so_fwrite(b,sizeof(char),strlen(b),fptr);
 
 
     so_fclose(fptr);
