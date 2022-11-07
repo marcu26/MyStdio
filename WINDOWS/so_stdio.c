@@ -284,7 +284,13 @@ int so_fputc(int c, SO_FILE *stream)
         }
     }
 
+     if(stream->IsOpenForAppend==1)
+    {
+        stream->LastOperation=2;
+    }
+    else
     stream->LastOperation=1;
+    
     stream->Buffer[stream->BufferCursor]=c;
     stream->BufferCursor++;
 }
