@@ -42,6 +42,8 @@ SO_FILE* AllocFilePtr()
     FILE->BufferCursor=0;
     FILE->IsError=0;
     FILE->LastOperation=-1;
+    FILE->BufferCursor=0;
+    FILE->IsError=0;
     FILE->Flags=0;
 
     return FILE;
@@ -426,7 +428,7 @@ FUNC_DECL_PREFIX SO_FILE *so_popen(const char *command, const char *type)
         if(flag == O_RDONLY)
         {
             close(fds[0]);
-            dup2(fds[1],STDOUT_FILENO);
+            dup2(fds[1],STDIN_FILENO);
         }
         else
         {

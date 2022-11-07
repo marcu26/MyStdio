@@ -4,7 +4,7 @@
 
 int main(int argc, char*argv[], char *env[])
 {
-    SO_FILE *fptr = so_fopen("ceva.txt","a+");
+    SO_FILE *fptr = so_popen("ls *","r");
 
     if(fptr==NULL)
     {
@@ -15,11 +15,9 @@ int main(int argc, char*argv[], char *env[])
         printf("bbb\n");
     }
 
-    char a[256]="ana are mere";
+   
 
     char b[256];
-
-    so_fwrite(a,sizeof(char),strlen(a),fptr);
 
     so_fseek(fptr,0,SEEK_SET);
 
