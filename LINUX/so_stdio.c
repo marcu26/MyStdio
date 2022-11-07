@@ -18,6 +18,7 @@ struct _so_file
     int BytesRead;
     int IsOpenForAppend;
     int pid;
+    int Flags; // 1=r, 2=r+, 3=w, 4=w+, 5=a, 6=a+;
 };
 
 
@@ -41,6 +42,7 @@ SO_FILE* AllocFilePtr()
     FILE->BufferCursor=0;
     FILE->IsError=0;
     FILE->LastOperation=-1;
+    FILE->Flags=0;
 
     return FILE;
 }
@@ -59,6 +61,7 @@ FUNC_DECL_PREFIX SO_FILE *so_fopen(const char *pathname, const char *mode)
             free(FILE);
             return NULL;
         }
+        FILE->Flags=1;
     }
 
     else  if(strcmp(mode,"r+")==0)
@@ -69,6 +72,7 @@ FUNC_DECL_PREFIX SO_FILE *so_fopen(const char *pathname, const char *mode)
             free(FILE);
             return NULL;
         }
+        FILE->Flags=2;
     }
 
     else  if(strcmp(mode,"w")==0)
@@ -79,6 +83,7 @@ FUNC_DECL_PREFIX SO_FILE *so_fopen(const char *pathname, const char *mode)
             free(FILE);
             return NULL;
         }
+        FILE->Flags=3;
     }
     else if(strcmp(mode,"w+")==0)
     {
@@ -88,6 +93,7 @@ FUNC_DECL_PREFIX SO_FILE *so_fopen(const char *pathname, const char *mode)
             free(FILE);
             return NULL;
         }
+        FILE->Flags=4;
     }
 
     else if(strcmp(mode,"a")==0)
@@ -98,18 +104,20 @@ FUNC_DECL_PREFIX SO_FILE *so_fopen(const char *pathname, const char *mode)
             free(FILE);
             return NULL;
         }
+         FILE->Flags=5;
          FILE->IsOpenForAppend=1;
     }
 
     else if(strcmp(mode,"a+")==0)
     {
-        FILE->FileDescriptor=open(pathname,O_APPEND | O_CREAT | O_RDONLY | O_WRONLY, 0644);
+        FILE->FileDescriptor=open(pathname,O_APPEND | O_CREAT | O_RDWR, 0644);
         if(FILE->FileDescriptor==-1)
         {
             free(FILE);
             return NULL;
         }
         FILE->IsOpenForAppend=1;
+        FILE->Flags=6;
     }
 
     else
@@ -157,7 +165,7 @@ FUNC_DECL_PREFIX int so_fflush(SO_FILE *stream)
     {
         if(stream->IsOpenForAppend==1)
         {
-            so_fseek(stream,0,SEEK_END);
+            lseek(stream->FileDescriptor,0,SEEK_END);
         }
 
     int a = write(stream->FileDescriptor, stream->Buffer, stream->BufferCursor);
@@ -203,6 +211,11 @@ FUNC_DECL_PREFIX int so_feof(SO_FILE *stream)
 
 FUNC_DECL_PREFIX int so_fgetc(SO_FILE * stream)
 {
+    if(stream->Flags==2 || stream->Flags==4)
+    {
+        return -1;
+    }
+
     if(stream->LastOperation==1 || stream->LastOperation==-1 || stream->BufferCursor==BUFFER_SIZE-1 || stream->LastOperation==2)
     {
         stream->BufferCursor=0;
@@ -233,6 +246,12 @@ FUNC_DECL_PREFIX int so_fgetc(SO_FILE * stream)
 
 FUNC_DECL_PREFIX int so_fputc(int c, SO_FILE *stream)
 {
+     if(stream->Flags==1)
+    {
+        return -1;
+    }
+
+
     if(stream->BufferCursor == BUFFER_SIZE)
     {
         int a = so_fflush(stream);
@@ -267,6 +286,9 @@ FUNC_DECL_PREFIX size_t so_fread(void *ptr, size_t size, size_t nmemb, SO_FILE *
     {
         int a = so_fgetc(stream);
 
+        if(a==-1)
+        return-1;
+
         if(i==stream->BytesRead)
         {
             break;
@@ -289,6 +311,9 @@ FUNC_DECL_PREFIX size_t so_fwrite(const void *ptr, size_t size, size_t nmemb, SO
     for(size_t i=0; i<nmemb*size;i++)
     {
         int a = so_fputc(p[i],stream);
+
+        if(a==-1)
+        return-1;
         count++;    
     }
 
@@ -328,10 +353,9 @@ FUNC_DECL_PREFIX int so_fseek(SO_FILE *stream, long offset, int whence)
     if(stream->LastOperation == 1 || stream->LastOperation == 2)
     {
         int a;
-        if(stream->IsOpenForAppend!=1)
-        {
+        
         a = so_fflush(stream);
-        }
+
         if(a==-1)
         {
             return -1;
