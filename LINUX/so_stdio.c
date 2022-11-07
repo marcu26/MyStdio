@@ -179,6 +179,7 @@ FUNC_DECL_PREFIX int so_fflush(SO_FILE *stream)
     }
     stream->BufferCursor=0;
     }
+    return 0;
 }
 
 FUNC_DECL_PREFIX int so_ferror(SO_FILE *stream)
@@ -244,6 +245,7 @@ FUNC_DECL_PREFIX int so_fgetc(SO_FILE * stream)
     stream->BufferCursor+=1;
     return stream->Buffer[stream->BufferCursor-1];
     }
+    return -1;
 }
 
 FUNC_DECL_PREFIX int so_fputc(int c, SO_FILE *stream)
@@ -275,6 +277,7 @@ FUNC_DECL_PREFIX int so_fputc(int c, SO_FILE *stream)
     
     stream->Buffer[stream->BufferCursor]=c;
     stream->BufferCursor++;
+    return 0;
 }
 
 FUNC_DECL_PREFIX size_t so_fread(void *ptr, size_t size, size_t nmemb, SO_FILE *stream)

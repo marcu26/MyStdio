@@ -237,8 +237,9 @@ int so_fflush(SO_FILE *stream)
         return -1;
     }
     stream->BufferCursor=0;
-    
     }
+
+    return 0;
 }
 
 int so_fgetc(SO_FILE *stream)
@@ -257,6 +258,7 @@ int so_fgetc(SO_FILE *stream)
         if(a==0)
         {
             stream->IsError=1;
+            return -1;
         }
 
         if(stream->BytesRead==0)
@@ -274,6 +276,8 @@ int so_fgetc(SO_FILE *stream)
     stream->BufferCursor+=1;
     return stream->Buffer[stream->BufferCursor-1];
     }
+
+    return -1;
 }
 
 int so_ferror(SO_FILE *stream)
@@ -314,6 +318,7 @@ int so_fputc(int c, SO_FILE *stream)
     
     stream->Buffer[stream->BufferCursor]=c;
     stream->BufferCursor++;
+    return 0;
 }
 
 size_t so_fread(void *ptr, size_t size, size_t nmemb, SO_FILE *stream)
