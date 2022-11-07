@@ -4,7 +4,7 @@
 
 int main(int argc, char*argv[], char *env[])
 {
-    SO_FILE *fptr = so_fopen("ceva.txt","a+");
+    SO_FILE *fptr = so_fopen("ceva.txt","a");
 
     if(fptr==NULL)
     {

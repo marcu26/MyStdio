@@ -217,7 +217,7 @@ int so_fflush(SO_FILE *stream)
     {
        if(stream->IsOpenForAppend==1)
         {
-            so_fseek(stream,0,SEEK_END);
+           SetFilePointer(stream->Handle,0,NULL,SEEK_END);
         }
         int written;
 
@@ -368,10 +368,9 @@ int so_fseek(SO_FILE *stream, long offset, int whence)
     if(stream->LastOperation == 1 || stream->LastOperation==2)
     {
         int a;
-        if(stream->IsOpenForAppend!=1)
-        {
+    
         a = so_fflush(stream);
-        }
+    
 
         if(a==-1)
         {
