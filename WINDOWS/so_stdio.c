@@ -275,7 +275,9 @@ int so_fputc(int c, SO_FILE *stream)
 {
     if(stream->BufferCursor == BUFFER_SIZE)
     {
-        int a = so_fflush(stream);
+        int a;
+    
+        a = so_fflush(stream);
 
         if(a==-1)
         {
@@ -365,7 +367,12 @@ int so_fseek(SO_FILE *stream, long offset, int whence)
 {
     if(stream->LastOperation == 1 || stream->LastOperation==2)
     {
-        int a = so_fflush(stream);
+        int a;
+        if(stream->IsOpenForAppend!=1)
+        {
+        a = so_fflush(stream);
+        }
+
         if(a==-1)
         {
             return -1;
