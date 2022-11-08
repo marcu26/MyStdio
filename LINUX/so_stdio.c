@@ -7,11 +7,13 @@
 
 
 #define BUFFER_SIZE 4096
+#define PIPE_READ 0
+#define PIPE_WRITE 1
 
 struct _so_file
 {
     int FileDescriptor;
-    char *Buffer;
+    char Buffer[BUFFER_SIZE];
     int BufferCursor;
     int IsError;
     int LastOperation; //-1 = nu a fost o alta operatie, 0 = a fost read, 1 = a fost write, 2 = a fost append
@@ -19,7 +21,10 @@ struct _so_file
     int IsOpenForAppend;
     int pid;
     int Flags; // 1=r, 2=r+, 3=w, 4=w+, 5=a, 6=a+;
+    int EOF;
 };
+
+
 
 
 
@@ -32,19 +37,20 @@ SO_FILE* AllocFilePtr()
             return NULL;
         }
 
-    FILE->Buffer=(char*)malloc(BUFFER_SIZE*sizeof(char));
-
     if(FILE->Buffer == NULL)
     {
             return NULL;
     }
-
+    memset(FILE->Buffer,0,BUFFER_SIZE);
     FILE->BufferCursor=0;
     FILE->IsError=0;
     FILE->LastOperation=-1;
-    FILE->BufferCursor=0;
-    FILE->IsError=0;
     FILE->Flags=0;
+    FILE->IsOpenForAppend=0;
+    FILE->EOF=0;
+    FILE->pid=-1;
+    FILE->FileDescriptor=-1;
+    FILE->BytesRead=0;
 
     return FILE;
 }
@@ -54,6 +60,9 @@ FUNC_DECL_PREFIX SO_FILE *so_fopen(const char *pathname, const char *mode)
     SO_FILE *FILE = NULL;
 
     FILE = AllocFilePtr();
+
+    if(FILE==NULL)
+    return NULL;
 
     if(strcmp(mode,"r")==0)
     {
@@ -134,49 +143,93 @@ FUNC_DECL_PREFIX SO_FILE *so_fopen(const char *pathname, const char *mode)
 FUNC_DECL_PREFIX int so_fclose(SO_FILE *stream)
 {
 
-
-    if(stream->LastOperation==1 || stream->LastOperation==2)
-    {
-    int a = so_fflush(stream);
-    if(a==-1)
-        {
-        stream->IsError=1;
-        return -1;
-        }
-    }
-  
-    int a = close(stream->FileDescriptor);
-    if(a==-1)
+    if(stream==NULL)
     return -1;
 
-    free(stream->Buffer);
-    free(stream);
-   
 
-    return 1;
+    if(stream->Flags==0)
+    return -1;
+
+    int a=0;
+
+    if(stream->Flags!=1)
+    {
+        
+    a = so_fflush(stream);
+        if(a<0)
+        {
+                stream->IsError=1;
+
+                if(stream!=NULL)
+                free(stream);
+                return -1;
+        }
+        }
+
+  
+    a = close(stream->FileDescriptor);
+
+    if(a==-1)
+    {
+    stream->IsError=1;
+    free(stream);
+    return -1;
+    }
+
+    if(stream==NULL)
+    return -1;
+    free(stream);
+    
+    return 0;
 }
 
 FUNC_DECL_PREFIX int so_fileno(SO_FILE *stream)
 {
+    if(stream!=NULL)
     return stream->FileDescriptor;
+
+    else return -1;
 }
+
 
 FUNC_DECL_PREFIX int so_fflush(SO_FILE *stream)
 {
-    if(stream->LastOperation!=0 && stream->LastOperation!=-1)
+    if(stream==NULL)
+    return -1;
+  
+    if(stream->LastOperation!=0 && stream->LastOperation!=-1 && stream->BufferCursor!=0 && stream->Flags!=1 && stream->Flags!=0) 
     {
+
         if(stream->IsOpenForAppend==1)
         {
-            lseek(stream->FileDescriptor,0,SEEK_END);
+            off_t poz = lseek(stream->FileDescriptor,0,SEEK_END);
+            if(poz==-1)
+            {
+                stream->IsError=1;
+                return -1;
+            }
         }
 
-    int a = write(stream->FileDescriptor, stream->Buffer, stream->BufferCursor);
+    ssize_t written = 0;
+    ssize_t a = 0;
+    
 
-    if(a==-1)
+    if(stream->EOF!=-1 && stream->BufferCursor>0)
     {
+    while(written < stream->BufferCursor)
+    {
+    a = write(stream->FileDescriptor, stream->Buffer+written, stream->BufferCursor-written);
+    if(a<=0)
+    {
+        stream->EOF=SO_EOF;
         stream->IsError=1;
         return -1;
     }
+    written+=a;
+    }
+    }
+    
+   
     stream->BufferCursor=0;
     }
     return 0;
@@ -184,76 +237,67 @@ FUNC_DECL_PREFIX int so_fflush(SO_FILE *stream)
 
 FUNC_DECL_PREFIX int so_ferror(SO_FILE *stream)
 {
-    if(stream->IsError==1)
-    return 1;
-
-    return 0;
+    return stream->IsError | stream->EOF;
 }
 
 FUNC_DECL_PREFIX int so_feof(SO_FILE *stream)
 {
-    int currentPosition = lseek(stream->FileDescriptor,0,SEEK_CUR);
-    if(currentPosition == -1)
-    return -1;
-
-    int eof = lseek(stream->FileDescriptor, 0, SEEK_END);
-    if (eof==-1)
-    return -1;
-
-
-
-    int a = lseek(stream->FileDescriptor,currentPosition,SEEK_SET);
-    if(a=-1)
-    return -1;
-
-    if(currentPosition == so_ftell(stream))
-    return 1;
-
-    return 0;
+    return stream->EOF;
 }
 
 FUNC_DECL_PREFIX int so_fgetc(SO_FILE * stream)
 {
-    if(stream->Flags==2 || stream->Flags==4)
+    if(stream->Flags==3 || stream->Flags==5 || stream==NULL)
     {
         return -1;
     }
 
-    if(stream->LastOperation==1 || stream->LastOperation==-1 || stream->BufferCursor==BUFFER_SIZE-1 || stream->LastOperation==2)
+    if(stream->LastOperation==1 || stream->LastOperation==-1 || stream->BufferCursor==BUFFER_SIZE || stream->LastOperation==2 || stream->BufferCursor==0 || stream->BufferCursor==stream->BytesRead)
     {
-        stream->BufferCursor=0;
-        stream->BytesRead = read(stream->FileDescriptor,stream->Buffer,BUFFER_SIZE);
+        ssize_t a=read(stream->FileDescriptor,stream->Buffer,BUFFER_SIZE);
 
-        if(stream->BytesRead==0)
+        if(a<=0)
         {
+            stream->EOF=-1;
             return SO_EOF;
         }
 
-        if(stream->BytesRead==-1)
-        {
-            stream->IsError=1;
-            return -1;
-        }
+        stream->BytesRead=a;
+        stream->BufferCursor=0;
+
+
 
         stream->LastOperation=0;
         stream->BufferCursor+=1;
-        return stream->Buffer[stream->BufferCursor-1];
+        return (int)stream->Buffer[stream->BufferCursor-1];
     }
 
     else if(stream->LastOperation==0)
     {
     stream->BufferCursor+=1;
-    return stream->Buffer[stream->BufferCursor-1];
+    return (int)stream->Buffer[stream->BufferCursor-1];
     }
-    return -1;
+    return 0;
 }
 
 FUNC_DECL_PREFIX int so_fputc(int c, SO_FILE *stream)
 {
+    if(stream==NULL)
+    {
+        return -1;
+    }
+
      if(stream->Flags==1)
     {
         return -1;
     }
+
+     if(stream->IsOpenForAppend==1)
+    {
+        stream->LastOperation=2;
+    }
+    else
+    stream->LastOperation=1;
 
 
     if(stream->BufferCursor == BUFFER_SIZE)
@@ -267,42 +311,40 @@ FUNC_DECL_PREFIX int so_fputc(int c, SO_FILE *stream)
         }
     }
 
-    if(stream->IsOpenForAppend==1)
-    {
-        stream->LastOperation=2;
-    }
-    else
-    stream->LastOperation=1;
-
     
     stream->Buffer[stream->BufferCursor]=c;
     stream->BufferCursor++;
-    return 0;
+    return c;
 }
 
 FUNC_DECL_PREFIX size_t so_fread(void *ptr, size_t size, size_t nmemb, SO_FILE *stream)
 {
 
+    if(stream==NULL)
+    return -1;
+
     char *p = (char*)ptr;
 
-    int count = 0;
+    if(p==NULL)
+    {
+    stream->IsError=1;
+    return -1;
+    }
 
-    for(size_t i = 0;i < nmemb * size; i++)
+    size_t  count = 0;
+
+    for(size_t  i = 0;i < nmemb * size; i++)
     {
         int a = so_fgetc(stream);
 
-        if(a==-1)
-        return-1;
+        if(so_feof(stream)==-1)
+        break;
 
-        if(i==stream->BytesRead)
-        {
-            break;
-        }
         p[i]=a;
+
         count++;
     }
 
-    p[count]='\0';
 
     return count/size;
 }
@@ -315,10 +357,11 @@ FUNC_DECL_PREFIX size_t so_fwrite(const void *ptr, size_t size, size_t nmemb, SO
 
     for(size_t i=0; i<nmemb*size;i++)
     {
-        int a = so_fputc(p[i],stream);
+        if(so_feof(stream)==-1)
+        break;
 
-        if(a==-1)
-        return-1;
+        size_t a = so_fputc(p[i],stream);
+
         count++;    
     }
 
@@ -328,14 +371,14 @@ FUNC_DECL_PREFIX size_t so_fwrite(const void *ptr, size_t size, size_t nmemb, SO
 
 FUNC_DECL_PREFIX long so_ftell(SO_FILE *stream)
 {
-    long position = lseek(stream->FileDescriptor,0,SEEK_CUR);
+    off_t position = lseek(stream->FileDescriptor,0,SEEK_CUR);
 
     if(position == -1)
     {
         return -1;
     }
 
-    if(stream->LastOperation =-1)
+    if(stream->LastOperation ==-1)
     {
         return position;
     }
@@ -343,13 +386,13 @@ FUNC_DECL_PREFIX long so_ftell(SO_FILE *stream)
     if(stream->LastOperation == 0)
     {
     position = position - stream->BytesRead + stream->BufferCursor;
-     return position;
+    return position;
     }
 
-    else
+    else 
     {
         position = position + stream->BufferCursor;
-         return position;
+        return position;
     }   
 }
 
@@ -373,6 +416,8 @@ FUNC_DECL_PREFIX int so_fseek(SO_FILE *stream, long offset, int whence)
 
     int a=lseek(stream->FileDescriptor,offset,whence);
 
+  
+
     if(a==-1)
     return -1;
 
@@ -381,80 +426,87 @@ FUNC_DECL_PREFIX int so_fseek(SO_FILE *stream, long offset, int whence)
 
 FUNC_DECL_PREFIX SO_FILE *so_popen(const char *command, const char *type)
 {
-    SO_FILE *FILE = AllocFilePtr();
-    int flag=0;
+    SO_FILE *stream = NULL;
 
-    if(FILE == NULL)
+    stream = AllocFilePtr();
+
+    if(stream==NULL)
     return NULL;
 
     if(strcmp(type,"r")==0)
     {
-        flag = O_RDONLY;
+        stream->Flags=1;
     }
     else if(strcmp(type,"w")==0)
     {
-        flag = O_WRONLY;
+        stream->Flags=2;
     }
+
     else
     {
-        free(FILE);
+        free(stream);
         return NULL;
     }
 
     int fds[2];
 
-    int a = pipe(fds);
+	int a = pipe(fds);
+	if (a != 0) {
+		free(stream);
+		return NULL;
+	}
 
-    if(a!=0)
+    if(stream->Flags==1)
     {
-        free(FILE);
-        return NULL;
+        stream->FileDescriptor = fds[PIPE_READ];
     }
 
-    if(flag == O_RDONLY)
-    FILE->FileDescriptor=fds[0];
     else
-    FILE->FileDescriptor=fds[1];
+    {
+        stream->FileDescriptor = fds[PIPE_WRITE]; 
+    }
 
     int pid = fork();
 
     if(pid==-1)
     {
-        close(fds[0]);
-		close(fds[1]);
-		free(FILE);
-        return NULL;
+        close(fds[PIPE_READ]);
+		close(fds[PIPE_WRITE]);
+		free(stream);
+
+		return NULL;
     }
-    else if(pid == 0)
+
+    else if(pid==0)
     {
-        //copil
-        if(flag == O_RDONLY)
+        if(stream->Flags==1)
         {
-            close(fds[0]);
-            dup2(fds[1],STDIN_FILENO);
+            close(fds[PIPE_READ]);
+			dup2(fds[PIPE_WRITE], STDOUT_FILENO);
         }
         else
         {
-            close(fds[1]);
-            dup2(fds[0],STDOUT_FILENO);
+            close(fds[PIPE_WRITE]);
+			dup2(fds[PIPE_READ], STDIN_FILENO);
         }
 
-        a=execl("/bin/sh", "sh", "-c", command, (char *)0);
-
-        if(a!=0)
-        return NULL;
+        int a = execl("/bin/sh", "sh", "-c", command, (char *)0);
+		if (a)
+		return NULL;
     }
-    else 
+
+    else
     {
-        FILE->pid = pid;
-        if (flag == O_RDONLY)
-			close(fds[1]);
-		else
-			close(fds[0]);
+        stream->pid = pid;
 
+		if (stream->Flags == 1)
+			close(fds[PIPE_WRITE]);
+		else
+			close(fds[PIPE_READ]);
     }
 
-    return FILE;
+    return stream;
+
 }
 
 FUNC_DECL_PREFIX int so_pclose(SO_FILE *stream)

@@ -4,7 +4,7 @@
 
 int main(int argc, char*argv[], char *env[])
 {
-    SO_FILE *fptr = so_popen("ls *","r");
+    SO_FILE *fptr = so_fopen("abasdfasdc.txt","w");
 
     if(fptr==NULL)
     {
@@ -15,16 +15,10 @@ int main(int argc, char*argv[], char *env[])
         printf("bbb\n");
     }
 
-   
-
-    char b[256];
-
-    so_fseek(fptr,0,SEEK_SET);
-
-    so_fread(b,sizeof(char),256,fptr);
-
-    printf("%s",b);
-
+    so_fputc('a',fptr);
+     so_fputc('a',fptr);
+      so_fputc('a',fptr);
+       so_fputc('a',fptr);
 
 
     so_fclose(fptr);
