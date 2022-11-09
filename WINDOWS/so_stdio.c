@@ -1,6 +1,5 @@
 #include "so_stdio.h"
 #include <windows.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
