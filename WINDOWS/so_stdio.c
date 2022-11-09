@@ -1,21 +1,24 @@
 #include "so_stdio.h"
-#include <string.h>
-#include <stdlib.h>
+#include <windows.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
 
 #define BUFFER_SIZE 4096
 
 struct _so_file
 {
     HANDLE Handle;
-    char *Buffer;
+    char Buffer[BUFFER_SIZE];
     int BufferCursor;
     int IsError;
     int LastOperation; //-1 = nu a fost o alta operatie, 0 = a fost read, 1 = a fost write, 2 = a fost append
     int BytesRead;
     int IsOpenForAppend;
-    int Flags; // 1=r, 2=r+, 3=w, 4=w+, 5=a, 6=a+;
     PROCESS_INFORMATION process;
+    int Flags; // 1=r, 2=r+, 3=w, 4=w+, 5=a, 6=a+;
+    int Eof;
 };
 
 SO_FILE* AllocFilePtr()
@@ -27,18 +30,19 @@ SO_FILE* AllocFilePtr()
             return NULL;
         }
 
-    FILE->Buffer=(char*)malloc(BUFFER_SIZE*sizeof(char));
-
     if(FILE->Buffer == NULL)
     {
             return NULL;
     }
-
+    memset(FILE->Buffer,0,BUFFER_SIZE);
     FILE->BufferCursor=0;
     FILE->IsError=0;
     FILE->LastOperation=-1;
-    FILE->IsOpenForAppend=0;
     FILE->Flags=0;
+    FILE->IsOpenForAppend=0;
+    FILE->Eof=0;
+    FILE->BytesRead=0;
+    FILE->Handle=INVALID_HANDLE_VALUE;
 
     return FILE;
 }
@@ -49,13 +53,16 @@ SO_FILE *so_fopen(const char *pathname, const char *mode)
 
     FILE = AllocFilePtr();
 
+    if(FILE == NULL)
+    return NULL;
+
     if(strcmp(mode,"r")==0)
     {
        FILE->Handle=CreateFile
        (
         pathname,
         GENERIC_READ,
-        FILE_SHARE_READ,
+        FILE_SHARE_READ | FILE_SHARE_WRITE,
         NULL,
         OPEN_EXISTING,
         FILE_ATTRIBUTE_NORMAL,
@@ -64,7 +71,7 @@ SO_FILE *so_fopen(const char *pathname, const char *mode)
 
        if(FILE->Handle == INVALID_HANDLE_VALUE)
        {
-         free(FILE);
+        free(FILE);
         return NULL;
        }
        FILE->Flags=1;
@@ -86,7 +93,7 @@ SO_FILE *so_fopen(const char *pathname, const char *mode)
 
        if(FILE->Handle == INVALID_HANDLE_VALUE)
        {
-         free(FILE);
+        free(FILE);
         return NULL;
        }
         FILE->Flags=2;
@@ -107,11 +114,12 @@ SO_FILE *so_fopen(const char *pathname, const char *mode)
 
        if(FILE->Handle == INVALID_HANDLE_VALUE)
        {
-         free(FILE);
+        free(FILE);
         return NULL;
        }
        FILE->Flags=3;
     }
+
     else if(strcmp(mode,"w+")==0)
     {
          FILE->Handle=CreateFile
@@ -127,7 +135,7 @@ SO_FILE *so_fopen(const char *pathname, const char *mode)
 
        if(FILE->Handle == INVALID_HANDLE_VALUE)
        {
-         free(FILE);
+        free(FILE);
         return NULL;
        }
        FILE->Flags=4;
@@ -150,7 +158,7 @@ SO_FILE *so_fopen(const char *pathname, const char *mode)
 
        if(FILE->Handle == INVALID_HANDLE_VALUE)
        {
-         free(FILE);
+        free(FILE);
         return NULL;
        }
        FILE->Flags=5;
@@ -190,123 +198,171 @@ SO_FILE *so_fopen(const char *pathname, const char *mode)
 
 int so_fclose(SO_FILE *stream)
 {
-    if(stream->LastOperation==1 || stream->LastOperation==2)
+    if(stream==NULL)
+    return -1;
+
+    if(stream->Handle==INVALID_HANDLE_VALUE)
+    return -1;
+
+    if(stream->Flags==0)
+    return -1;
+
+    int a=0;
+
+    if(stream->Flags!=1)
     {
-    int a = so_fflush(stream);
-    if(a==-1)
-       {
-        stream->IsError=1;
-        return -1;
+    a = so_fflush(stream);
+        if(a<0)
+        {
+                stream->IsError=1;
+                if(stream!=NULL)
+                free(stream);
+                return -1;
         }
     }
 
-
   
-    int a = CloseHandle(stream->Handle);
+    BOOL b = CloseHandle(stream->Handle);
 
-    if(a==0)
-    return -1;
-
-    free(stream->Buffer);
+    if(b==FALSE)
+    {
+    stream->IsError=1;
     free(stream);
-   
+    return -1;
+    }
 
-    return 1;
+    if(stream==NULL)
+    return -1;
+    free(stream);
+    
+    return 0;
 }
 
 HANDLE so_fileno(SO_FILE *stream)
 {
+    if(stream!=NULL)
     return stream->Handle;
+
+    else return INVALID_HANDLE_VALUE;
 }
 
 int so_fflush(SO_FILE *stream)
 {
-    if(stream->LastOperation!=0 && stream->LastOperation!=-1)
+    if(stream==NULL)
+    return -1;
+  
+    if(stream->LastOperation!=0 && stream->LastOperation!=-1 && stream->BufferCursor!=0 && stream->Flags!=1 && stream->Flags!=0) 
     {
-       if(stream->IsOpenForAppend==1)
+
+        if(stream->IsOpenForAppend==1)
         {
-           SetFilePointer(stream->Handle,0,NULL,SEEK_END);
+            DWORD poz = SetFilePointer(stream->Handle,0,NULL,SEEK_END);
+            if(poz==INVALID_SET_FILE_POINTER)
+            {
+                stream->IsError=1;
+                return -1;
+            }
         }
-        int written;
 
-    int a = WriteFile(stream->Handle,stream->Buffer,stream->BufferCursor,&written,NULL);
+    int written = 0;
+    BOOL a=0; 
+    int writenNow=0;
 
-    if(a==0)
+    if(stream->Eof!=-1 && stream->BufferCursor>0)
     {
+    while(written < stream->BufferCursor)
+    {
+    a = WriteFile(stream->Handle, (char*)(stream->Buffer+written), stream->BufferCursor-written,&writenNow,NULL);
+
+    if(a==FALSE)
+    {
+        
+        stream->Eof=-1;
         stream->IsError=1;
         return -1;
     }
+
+   
+    written+=writenNow;
+    }
+    }
+    
+   
     stream->BufferCursor=0;
     }
-
     return 0;
+}
+
+int so_ferror(SO_FILE *stream)
+{
+    return stream->IsError | stream->Eof;
+}
+
+int so_feof(SO_FILE *stream)
+{
+    return stream->Eof;
 }
 
 int so_fgetc(SO_FILE *stream)
 {
-    if(stream->Flags==2 || stream->Flags==4)
+     if(stream->Flags==3 || stream->Flags==5 || stream==NULL)
     {
+        stream->IsError=1;
+        stream->Eof=-1;
         return -1;
     }
 
-    if(stream->LastOperation==1 || stream->LastOperation==-1 || stream->BufferCursor==BUFFER_SIZE-1 || stream->LastOperation==2)
+   if(stream->LastOperation==1 || stream->LastOperation==-1 || stream->BufferCursor==BUFFER_SIZE || stream->LastOperation==2
+    || stream->BufferCursor==0 || stream->BufferCursor==stream->BytesRead)
     {
-        int bytesRead;
-        stream->BufferCursor=0;
-        int a = ReadFile(stream->Handle,stream->Buffer,BUFFER_SIZE,&stream->BytesRead,NULL);
+        BOOL a=0;
+        a = ReadFile(stream->Handle,(char*)stream->Buffer,BUFFER_SIZE,&stream->BytesRead,NULL);
 
-        if(a==0)
+        if(a==FALSE)
         {
-            stream->IsError=1;
-            return -1;
-        }
-
-        if(stream->BytesRead==0)
-        {
+            stream->Eof=-1;
             return SO_EOF;
         }
 
+        if(GetLastError()==ERROR_BROKEN_PIPE)
+         {
+            stream->Eof=-1;
+            return SO_EOF;
+        }
+
+        if(stream->BytesRead<=0)
+        {
+            stream->Eof=-1;
+            return SO_EOF;
+        }
+
+        stream->BufferCursor=0;
+
         stream->LastOperation=0;
         stream->BufferCursor+=1;
-        return stream->Buffer[stream->BufferCursor-1];
+        return (int)stream->Buffer[stream->BufferCursor-1];
     }
 
     else if(stream->LastOperation==0)
     {
     stream->BufferCursor+=1;
-    return stream->Buffer[stream->BufferCursor-1];
+    return (int)stream->Buffer[stream->BufferCursor-1];
     }
-
-    return -1;
-}
-
-int so_ferror(SO_FILE *stream)
-{
-    if(stream->IsError==1)
-    return 1;
-
     return 0;
 }
 
+
+
 int so_fputc(int c, SO_FILE *stream)
 {
-     if(stream->Flags==1)
+ if(stream==NULL)
     {
         return -1;
     }
 
-
-    if(stream->BufferCursor == BUFFER_SIZE)
+     if(stream->Flags==1)
     {
-        int a;
-    
-        a = so_fflush(stream);
-
-        if(a==-1)
-        {
-            stream->IsError=1;
-            return -1;
-        }
+        return -1;
     }
 
      if(stream->IsOpenForAppend==1)
@@ -315,51 +371,68 @@ int so_fputc(int c, SO_FILE *stream)
     }
     else
     stream->LastOperation=1;
+
+
+    if(stream->BufferCursor == BUFFER_SIZE)
+    {
+        int a = so_fflush(stream);
+
+        if(a==-1)
+        {
+            stream->IsError=1;
+            return -1;
+        }
+    }
+
     
     stream->Buffer[stream->BufferCursor]=c;
     stream->BufferCursor++;
-    return 0;
+    return c;
 }
 
 size_t so_fread(void *ptr, size_t size, size_t nmemb, SO_FILE *stream)
 {
+    if(stream==NULL)
+    return -1;
 
     char *p = (char*)ptr;
 
-    int count = 0;
+    if(p==NULL)
+    {
+    stream->IsError=1;
+    return -1;
+    }
 
-    for(size_t i = 0;i < nmemb * size; i++)
+    size_t  count = 0;
+
+    for(size_t  i = 0;i < nmemb * size; i++)
     {
         int a = so_fgetc(stream);
 
-        if(a==-1)
-        return -1;
+        if(so_feof(stream)==-1)
+        break;
 
-        if(i==stream->BytesRead)
-        {
-            break;
-        }
         p[i]=a;
+
         count++;
     }
 
-    p[count]='\0';
 
     return count/size;
 }
 
 size_t so_fwrite(const void *ptr, size_t size, size_t nmemb, SO_FILE *stream)
 {
-    char *p = (char*)ptr;
+     char *p = (char*)ptr;
 
     int count = 0;
 
     for(size_t i=0; i<nmemb*size;i++)
     {
-        int a = so_fputc(p[i],stream);
+        if(so_feof(stream)==-1)
+        break;
 
-        if(a==-1)
-        return -1;
+        size_t a = so_fputc(p[i],stream);
 
         count++;    
     }
@@ -369,14 +442,14 @@ size_t so_fwrite(const void *ptr, size_t size, size_t nmemb, SO_FILE *stream)
 
 long so_ftell(SO_FILE *stream)
 {
-    long position = SetFilePointer(stream->Handle,0,NULL,FILE_CURRENT);
+    DWORD position = SetFilePointer(stream->Handle,0,NULL,FILE_CURRENT);
 
-    if(position == INVALID_SET_FILE_POINTER)
+     if(position == -1)
     {
         return -1;
     }
 
-    if(stream->LastOperation =-1)
+    if(stream->LastOperation ==-1)
     {
         return position;
     }
@@ -384,13 +457,13 @@ long so_ftell(SO_FILE *stream)
     if(stream->LastOperation == 0)
     {
     position = position - stream->BytesRead + stream->BufferCursor;
-     return position;
+    return position;
     }
 
-    else
+    else 
     {
         position = position + stream->BufferCursor;
-         return position;
+        return position;
     }   
 }
 
@@ -422,115 +495,11 @@ int so_fseek(SO_FILE *stream, long offset, int whence)
 
 SO_FILE *so_popen(const char *command, const char *type)
 {
-    SO_FILE *FILE = AllocFilePtr();
-    int flag=0;
-
-    char commandLine[BUFFER_SIZE];
-    //strcpy(commandLine,"C:\\windows\\system32\\cmd.exe /c ");
-    strcat(commandLine,command);
-
-    if(FILE == NULL)
     return NULL;
-
-    if(strcmp(type,"r")==0)
-    {
-        flag = GENERIC_READ;
-    }
-    else if(strcmp(type,"w")==0)
-    {
-        flag = GENERIC_WRITE;
-    }
-    else
-    {
-        free(FILE);
-        return NULL;
-    }
-
-	SECURITY_ATTRIBUTES si_pipe;
-	STARTUPINFO si;
-	PROCESS_INFORMATION pi;
-
-    ZeroMemory(&si, sizeof(si));
-    si.cb = sizeof(si);
-
-    si.dwFlags |= STARTF_USESTDHANDLES;
-    si.hStdInput=GetStdHandle(STD_INPUT_HANDLE);
-    si.hStdOutput=GetStdHandle(STD_OUTPUT_HANDLE);
-    si.hStdError=GetStdHandle(STD_ERROR_HANDLE);
-
-    ZeroMemory(&pi, sizeof(pi));
-
-    ZeroMemory(&si_pipe, sizeof(si_pipe));
-    si_pipe.nLength = sizeof(si_pipe);
-
-    si_pipe.bInheritHandle = TRUE;
-
-    HANDLE hReadPipe, hWritePipe;
-    BOOL a = CreatePipe(&hReadPipe, &hWritePipe, &si_pipe, 0);
-
-    if(a==FALSE)
-    {
-        free(FILE);
-        return NULL;
-    }
-
-    if(flag==GENERIC_READ)
-    {
-        FILE->Handle = hReadPipe;
-        si.hStdOutput = hWritePipe;
-        SetHandleInformation(hReadPipe, HANDLE_FLAG_INHERIT,0);   
-    }
-    else
-    {
-        FILE->Handle = hWritePipe;
-        si.hStdOutput = hReadPipe;
-        SetHandleInformation(hWritePipe, HANDLE_FLAG_INHERIT,0);   
-    }
-
-
-    if (flag==GENERIC_READ)
-		CloseHandle(hWritePipe);
-	else
-		CloseHandle(hReadPipe);
-
-	if (a == 0) 
-    {
-		free(FILE);
-		return NULL;
-	}
-
-	FILE->process = pi;
-
-	return FILE;
 }
+
 
 int so_pclose(SO_FILE *stream)
 {
-     if(stream->LastOperation == 1 || stream->LastOperation==2)
-    {
-        int a = so_fflush(stream);
-        if(a==-1)
-        {
-            stream->IsError=1;
-        }
-    }
-
-    int status;
-    CloseHandle(stream->Handle);
-    int a = WaitForSingleObject(stream->process.hProcess,INFINITE);
-
-    if (a == WAIT_FAILED) 
-    {
-		return -1;
-	}
-
-    CloseHandle(stream->process.hProcess);
-	CloseHandle(stream->process.hThread);
-
-    free(stream);
-
-    if(a<0)
-    return -1;
-
-    return 0;
+  return -1;
 }
