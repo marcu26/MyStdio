@@ -494,11 +494,129 @@ int so_fseek(SO_FILE *stream, long offset, int whence)
 
 SO_FILE *so_popen(const char *command, const char *type)
 {
+    SO_FILE *stream = NULL;
+
+    stream = AllocFilePtr();
+
+    if(stream==NULL)
     return NULL;
+
+    if(strcmp(type,"r")==0)
+    {
+        stream->Flags=1;
+    }
+    else if(strcmp(type,"w")==0)
+    {
+        return NULL;
+        stream->Flags=2;
+    }
+
+    else
+    {
+        free(stream);
+        return NULL;
+    }
+
+    STARTUPINFO si;
+    PROCESS_INFORMATION pi;
+    SECURITY_ATTRIBUTES si_pipe;
+    DWORD dwRes;
+    BOOL bRes;
+    CHAR cmdLine[BUFFER_SIZE];
+
+    strcpy(cmdLine,"");
+    strcat(cmdLine, command);
+
+    ZeroMemory(&si, sizeof(si));
+    si.cb = sizeof(si);
+
+    ZeroMemory(&pi, sizeof(pi));
+
+    ZeroMemory(&si_pipe, sizeof(si_pipe));
+    si_pipe.nLength = sizeof(si_pipe);
+
+    si_pipe.bInheritHandle = TRUE;
+
+    HANDLE hReadPipe, hWritePipe;
+    BOOL a = CreatePipe(&hReadPipe, &hWritePipe, &si_pipe, 0);
+
+    if(a==0)
+    return NULL;
+
+    if(stream->Flags==1)
+    {
+        si.hStdInput = hReadPipe;
+        a = SetHandleInformation(hWritePipe, HANDLE_FLAG_INHERIT, 0);
+        if(a==0)
+    return NULL;
+        si.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+        stream->Handle=hReadPipe;
+    }
+    else
+    {
+        si.hStdOutput = hWritePipe;
+         a = SetHandleInformation(hReadPipe, HANDLE_FLAG_INHERIT, 0);
+             if(a==0)
+    return NULL;
+        si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+        stream->Handle=hWritePipe;
+    }
+
+    si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+    si.dwFlags |= STARTF_USESTDHANDLES;
+
+
+     bRes = CreateProcessA(
+        NULL,           /* No module name (use command line) */
+        cmdLine,        /* Command line */
+        NULL,           /* Process handle not inheritable */
+        NULL,           /* Thread handle not inheritable */
+        TRUE,           /* Set handle inheritance to TRUE */
+        0,              /* No creation flags */
+        NULL,           /* Use parent's environment block */
+        NULL,           /* Use parent's starting directory */
+        &si,            /* Pointer to STARTUPINFO structure */
+        &pi             /* Pointer to PROCESS_INFORMATION structure */
+    );
+
+    if(bRes==0)
+    return NULL;
+
+    stream->process=pi;
+
+    return stream;
+}
+
+void CloseProcess(LPPROCESS_INFORMATION lppi) 
+{
+    CloseHandle(lppi->hThread);
+    CloseHandle(lppi->hProcess);
 }
 
 
 int so_pclose(SO_FILE *stream)
 {
-  return -1;
+    if(stream==NULL)
+    return -1;
+
+
+    DWORD dwRes;
+    BOOL bRes;
+
+    BOOL a= CloseHandle(stream->Handle);
+    if(a==0)
+    return -1;
+
+    //dwRes = WaitForSingleObject(stream->process.hProcess, 5000);
+    //if(dwRes== WAIT_TIMEOUT)
+    //return -1;
+
+    bRes = GetExitCodeProcess(stream->process.hThread, &dwRes);
+    if(bRes==0)
+    return -1;
+    
+    CloseProcess(&stream->process);
+
+    return 0;
+
 }
