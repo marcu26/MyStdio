@@ -9,8 +9,7 @@ so_stdio.obj: so_stdio.c
 	cl /c /DDLL_EXPORTS so_stdio.c
 
 clean:
-	del *.obj
-	del *.lib
-	del *.dll
-	del *.exe
-	del *.exp
+	del so_stdio.obj
+	del so_stdio.lib
+	del so_stdio.dll
+	del so_stdio.exp
