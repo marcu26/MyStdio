@@ -2,7 +2,7 @@
 
 Din makefile-uri rezulta doar bibliotecile.
 
-###Structura:
+## Structura:
 
 - File descriptor : descriptoru de fisier pentru windows/ Handle pentru linux
 - Buffer: buffer-ul in care vom scrie si in care vom citi din fisier
